@@ -3,6 +3,11 @@
 from __future__ import annotations
 
 import os as _os
+import sys
+import asyncio
+import functools
+import contextvars
+from typing import Any, Dict, List, Callable
 from typing_extensions import override
 
 from . import types
@@ -86,6 +91,19 @@ from .lib.streaming import (
 )
 
 _setup_logging()
+
+# When using asyncify in a nested event loop, anyio left a thread that caused hanging
+# This uses asyncio.to_thread for Python 3.9+ and a replica of the asyncio.to_thread
+# implementation for Python 3.8
+if sys.version_info.minor == 8:
+    async def _to_thread(func: Callable[..., Any], /, *args: List[Any], **kwargs: Dict[Any, Any]):
+        loop = asyncio.events.get_running_loop()
+        ctx = contextvars.copy_context()
+        func_call = functools.partial(ctx.run, func, *args, **kwargs)
+        return await loop.run_in_executor(None, func_call)
+    to_thread = _to_thread
+if sys.version_info.minor >= 9:
+    to_thread = asyncio.to_thread # type: ignore - Python 3.9+ only
 
 # Update the __module__ attribute for exported symbols so that
 # error messages point to this module instead of the module
